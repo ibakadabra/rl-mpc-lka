@@ -1,0 +1,14 @@
+vehicle:
+  mass: 1500.0          # kg
+  yaw_inertia: 2500.0   # kg·m²
+  lf: 1.2               # CG to front axle (m)
+  lr: 1.4               # CG to rear axle (m)
+  Cf: 80000.0           # front cornering stiffness (N/rad)
+  Cr: 85000.0           # rear cornering stiffness (N/rad)
+
+# Domain randomization ranges (training)
+randomization:
+  Cf_range: [0.7, 1.3]   # multiplier
+  Cr_range: [0.7, 1.3]
+  mass_range: [0.9, 1.1]
+  actuator_delay_ms: [0, 50]

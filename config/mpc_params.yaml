@@ -1,0 +1,22 @@
+mpc:
+  prediction_horizon: 20    # Np
+  control_horizon: 10       # Nc
+  sampling_time: 0.02       # Ts (seconds)
+  solver: "OSQP"
+  warm_start: true
+
+constraints:
+  delta_max: 0.5            # steering saturation (rad)
+  delta_rate_max: 0.1       # steering rate per step (rad/step)
+  ey_max: 1.8               # lane boundary (m)
+  ay_max: 3.0               # lateral acceleration comfort (m/s²)
+
+fixed_weights:
+  # Used for fixed-MPC baseline and fallback
+  Q_diag: [100.0, 10.0, 0.1, 0.1]
+  R: 1.0
+  R_delta: 10.0
+
+  # q3, q4 always fixed (RL doesn't touch)
+  q3_fixed: 0.1
+  q4_fixed: 0.1

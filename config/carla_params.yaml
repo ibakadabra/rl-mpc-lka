@@ -1,0 +1,46 @@
+carla:
+  host: "localhost"
+  port: 2000
+  timeout: 10.0
+  map: "Town04"                  # highway map, good for lane keeping
+  synchronous_mode: true
+  fixed_delta_seconds: 0.02      # match MPC Ts
+  vehicle_blueprint: "vehicle.tesla.model3"
+
+sensors:
+  imu:
+    enabled: true
+    noise_accel_stddev: 0.01
+    noise_gyro_stddev: 0.001
+  gnss:
+    enabled: true
+    noise_stddev: 0.5
+  collision:
+    enabled: true
+
+weather_presets:
+  - "ClearNoon"
+  - "CloudyNoon"
+  - "WetNoon"
+  - "WetCloudyNoon"
+  - "HardRainNoon"
+  - "SoftRainNoon"
+
+evaluation_scenarios:
+  - name: "highway_straight"
+    speed_range: [27.8, 33.3]    # 100-120 km/h
+    kappa_range: [0.0, 0.005]
+  - name: "highway_curve"
+    speed_range: [22.2, 27.8]    # 80-100 km/h
+    kappa_range: [0.01, 0.03]
+  - name: "urban_sharp"
+    speed_range: [8.3, 13.9]     # 30-50 km/h
+    kappa_range: [0.05, 0.15]
+  - name: "mixed_route"
+    speed_range: [8.3, 33.3]
+    kappa_range: [0.0, 0.15]
+  - name: "low_mu_wet"
+    speed_range: [13.9, 16.7]    # 50-60 km/h
+    kappa_range: [0.01, 0.05]
+    Cf_multiplier: 0.6
+    Cr_multiplier: 0.6

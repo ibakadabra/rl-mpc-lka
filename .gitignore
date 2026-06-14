@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs and models (large files)
+logs/
+models/*.zip
+models/*.pt
+results/*.csv
+
+# CARLA
+CarlaUE4/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+*.hdf5
+*.pkl

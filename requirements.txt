@@ -1,0 +1,31 @@
+# Core
+numpy>=1.24
+scipy>=1.10
+matplotlib>=3.7
+
+# MPC
+cvxpy>=1.4
+osqp>=0.6
+
+# RL
+gymnasium>=0.29
+stable-baselines3>=2.1
+torch>=2.0
+
+# CARLA (install separately, version-dependent)
+# carla==0.9.15
+
+# ROS2 (install via apt, not pip)
+# ros-humble-desktop
+
+# Config
+pyyaml>=6.0
+
+# Logging
+tensorboard>=2.14
+
+# Testing
+pytest>=7.0
+
+# Notebooks
+jupyterlab>=4.0
