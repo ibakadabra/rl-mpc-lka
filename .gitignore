@@ -7,8 +7,8 @@ build/
 .eggs/
 
 # Virtual environment
-venv/
 .venv/
+venv/
 env/
 
 # IDE
@@ -20,19 +20,24 @@ env/
 # Jupyter
 .ipynb_checkpoints/
 
-# Logs and models (large files)
+# TensorBoard / SB3 monitor — regeneratable, can be large
 logs/
-models/*.zip
-models/*.pt
-results/*.csv
 
-# CARLA
+# Large model checkpoints (CleanRL .pt files); the SB3 sac_rlmpc.zip + the
+# vecnormalize.pkl ARE committed so the remote validation PC has the model
+# right after `git pull`.
+models/*.pt
+models/*.bin
+
+# CARLA install dir (only on machines where the simulator lives)
 CarlaUE4/
 
-# OS
+# OS noise
 .DS_Store
 Thumbs.db
 
-# Data
+# Bulk data files kept outside the repo
 *.hdf5
-*.pkl
+
+# Smoke / scratch CSVs we don't want to ship; the canonical results stay tracked.
+results/eval_smoke.csv
