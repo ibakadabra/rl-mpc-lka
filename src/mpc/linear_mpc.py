@@ -297,8 +297,10 @@ class LinearMPC:
         A_csc = sp.csc_matrix(A)
         m = osqp.OSQP()
         m.setup(P=P_csc, q=q, A=A_csc, l=l, u=u, verbose=False,
-                eps_abs=1e-6, eps_rel=1e-6, max_iter=4000, polishing=True,
-                adaptive_rho=True, warm_starting=False)
+                eps_abs=1e-5, eps_rel=1e-5, max_iter=10000, polishing=True,
+                adaptive_rho=True, warm_starting=True, scaling=20)
+        if self._last_z is not None and self._last_z.shape == (self.nz,):
+            m.warm_start(x=self._last_z)
         t0 = time.perf_counter()
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", PendingDeprecationWarning)
