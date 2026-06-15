@@ -10,8 +10,18 @@ Examples
 """
 
 import argparse
+import os
 import sys
 from pathlib import Path
+
+# Pin BLAS/OpenMP to a single thread PER PROCESS *before* numpy/scipy/osqp are
+# imported. With parallel SubprocVecEnv workers, the default (each process grabs
+# all cores for its BLAS) causes massive oversubscription and kills the speedup
+# from --n-envs — the per-worker MPC QP then runs no faster than single-threaded.
+# One thread per worker lets the N workers actually run on N cores.
+for _v in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
+           "NUMEXPR_NUM_THREADS", "VECLIB_MAXIMUM_THREADS"):
+    os.environ.setdefault(_v, "1")
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
