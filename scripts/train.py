@@ -35,6 +35,9 @@ def main():
     ap.add_argument("--out-subdir", default=None,
                     help="save under models/<subdir>/ instead of models/ "
                          "(keeps the existing demo model for before/after compare)")
+    ap.add_argument("--n-envs", type=int, default=1,
+                    help="parallel rollout workers; the MPC QP is CPU-bound so "
+                         "this scales throughput ~N-fold (try 8 on an 8-core box)")
     ap.add_argument("--plot", action="store_true", help="save learning curve when done")
     args = ap.parse_args()
 
@@ -55,7 +58,8 @@ def main():
     out_dir = None
     if args.out_subdir:
         out_dir = _Path(__file__).resolve().parents[1] / "models" / args.out_subdir
-    train(total_timesteps=args.timesteps, env_config=cfg, seed=args.seed, out_dir=out_dir)
+    train(total_timesteps=args.timesteps, env_config=cfg, seed=args.seed,
+          out_dir=out_dir, n_envs=args.n_envs)
     if args.plot:
         plot_learning_curve()
 

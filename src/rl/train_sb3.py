@@ -35,8 +35,13 @@ from pathlib import Path
 import numpy as np
 import yaml
 from stable_baselines3 import SAC
+from stable_baselines3.common.callbacks import CheckpointCallback
 from stable_baselines3.common.monitor import Monitor
-from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
+from stable_baselines3.common.vec_env import (
+    DummyVecEnv,
+    SubprocVecEnv,
+    VecNormalize,
+)
 
 from src.mpc.linear_mpc import MPCParams
 from src.rl.environment import CarlaMPCEnv, EnvConfig
@@ -65,7 +70,11 @@ def load_sac_hyperparams(path: Path | None = None) -> dict:
 
 
 def make_env_fn(env_config: EnvConfig, monitor_path: Path | None, seed: int):
-    """Factory that builds one Monitor-wrapped environment instance."""
+    """Factory that builds one Monitor-wrapped environment instance.
+
+    Each parallel worker gets its own `seed` so the workers explore different
+    roads/plants instead of identical episodes.
+    """
     def _init():
         veh = VehicleParams.from_yaml(CONFIG / "vehicle_params.yaml")
         env = CarlaMPCEnv(
@@ -88,15 +97,27 @@ def train(
     learning_starts: int = 1000,
     seed: int = 0,
     verbose: int = 1,
+    n_envs: int = 1,
+    checkpoint_freq: int = 50_000,
 ) -> SAC:
-    """Train a SAC agent that tunes the MPC weights, with obs normalization."""
+    """Train a SAC agent that tunes the MPC weights, with obs normalization.
+
+    n_envs           number of parallel rollout workers. The bottleneck is the
+                     CPU-bound MPC QP (10 solves per env step), so running N
+                     envs in separate processes scales throughput ~N-fold.
+    checkpoint_freq  save an intermediate model every this many TOTAL env steps,
+                     so a long run survives an interruption.
+    """
     env_config = env_config or EnvConfig(kappa_max=0.05, randomize=True)
     out_dir = out_dir or (ROOT / "models")
     out_dir.mkdir(parents=True, exist_ok=True)
     log_dir = ROOT / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
-    venv = DummyVecEnv([make_env_fn(env_config, log_dir / "monitor", seed)])
+    # one env factory per worker, each with its own seed and monitor file
+    env_fns = [make_env_fn(env_config, log_dir / f"monitor_{i}", seed + i)
+               for i in range(max(1, n_envs))]
+    venv = SubprocVecEnv(env_fns) if n_envs > 1 else DummyVecEnv(env_fns)
     # whiten observations online; keep rewards raw so logged returns are real.
     venv = VecNormalize(venv, norm_obs=True, norm_reward=False, clip_obs=10.0)
 
@@ -120,7 +141,17 @@ def train(
         verbose=verbose,
         **load_sac_hyperparams(),
     )
-    model.learn(total_timesteps=total_timesteps, progress_bar=False)
+
+    # periodic checkpoint so a multi-hour run survives an interruption. save_freq
+    # is per-worker, so divide by n_envs to land on the requested TOTAL-step cadence.
+    ckpt_dir = out_dir / "checkpoints"
+    callback = CheckpointCallback(
+        save_freq=max(checkpoint_freq // max(1, n_envs), 1),
+        save_path=str(ckpt_dir),
+        name_prefix="sac_rlmpc",
+        save_vecnormalize=True,
+    )
+    model.learn(total_timesteps=total_timesteps, progress_bar=False, callback=callback)
 
     model.save(out_dir / "sac_rlmpc")
     venv.save(str(out_dir / "vecnormalize.pkl"))  # need the obs stats at eval time
