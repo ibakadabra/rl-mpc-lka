@@ -196,6 +196,7 @@ class CarlaValidationEnv:
         # tick a few steps so initial transforms settle
         for _ in range(5):
             self._world.tick()
+        self._follow_spectator()
         sig = compute_lane_signals(self._world, self._vehicle, Np=self.Np, Ts=self.Ts)
         x = lane_signals_to_state(sig, vy_estimate=0.0)
         return sig, x
@@ -212,13 +213,24 @@ class CarlaValidationEnv:
         brake = float(np.clip(-u, 0.0, 1.0))
         return throttle, brake
 
+    def _follow_spectator(self):
+        """Move the CARLA spectator camera behind and above the vehicle."""
+        tr = self._vehicle.get_transform()
+        yaw = math.radians(tr.rotation.yaw)
+        behind_dist, height = 8.0, 4.0
+        spec_loc = carla.Location(
+            x=tr.location.x - behind_dist * math.cos(yaw),
+            y=tr.location.y - behind_dist * math.sin(yaw),
+            z=tr.location.z + height,
+        )
+        spec_rot = carla.Rotation(pitch=-15.0, yaw=tr.rotation.yaw, roll=0.0)
+        self._world.get_spectator().set_transform(
+            carla.Transform(spec_loc, spec_rot))
+
     def step(self, delta: float):
         """Apply steering, tick CARLA once, return new signals + done flag."""
         sig_now = compute_lane_signals(self._world, self._vehicle, Np=self.Np, Ts=self.Ts)
         throttle, brake = self._longitudinal_pi(sig_now)
-        # CARLA's steer input is normalized to [-1, 1] mapping ~[-70 deg, +70 deg]
-        # of the front wheels. For lane keeping the relevant range is ~[-0.3, 0.3]
-        # of physical delta; we send delta / max_steer_rad.
         max_steer_rad = math.radians(70.0)
         steer_cmd = float(np.clip(delta / max_steer_rad, -1.0, 1.0))
         ctrl = carla.VehicleControl(throttle=throttle, steer=steer_cmd,
@@ -226,6 +238,7 @@ class CarlaValidationEnv:
         self._vehicle.apply_control(ctrl)
         self._world.tick()
         self._sim_step += 1
+        self._follow_spectator()
 
         sig = compute_lane_signals(self._world, self._vehicle, Np=self.Np, Ts=self.Ts)
         x = lane_signals_to_state(sig, vy_estimate=0.0)
