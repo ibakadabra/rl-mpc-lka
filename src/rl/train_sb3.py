@@ -100,11 +100,22 @@ def train(
     # whiten observations online; keep rewards raw so logged returns are real.
     venv = VecNormalize(venv, norm_obs=True, norm_reward=False, clip_obs=10.0)
 
+    # TensorBoard logging is optional: only enable it if the package is present,
+    # otherwise SB3 raises at learn() time. The monitor CSV + learning-curve plot
+    # already capture the training return without it.
+    try:
+        import tensorboard  # noqa: F401
+        tb_log = str(log_dir)
+    except Exception:
+        tb_log = None
+        print("[info] tensorboard not installed -> skipping TB logs "
+              "(pip install tensorboard to enable)")
+
     model = SAC(
         "MlpPolicy",
         venv,
         learning_starts=learning_starts,
-        tensorboard_log=str(log_dir),
+        tensorboard_log=tb_log,
         seed=seed,
         verbose=verbose,
         **load_sac_hyperparams(),
