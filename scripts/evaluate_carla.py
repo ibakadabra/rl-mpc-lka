@@ -62,7 +62,8 @@ DEFAULT_CARLA_SCENARIOS = [
 ]
 
 
-def rollout_carla(env, controller, scenario: CarlaScenario, seed: int):
+def rollout_carla(env, controller, scenario: CarlaScenario, seed: int,
+                  debug: bool = False):
     """Drive one CARLA episode with the given controller; return metrics."""
     sig, x = env.reset(seed=seed, target_speed=scenario.target_speed,
                        cf_mult=scenario.cf_mult, cr_mult=scenario.cr_mult)
@@ -71,17 +72,32 @@ def rollout_carla(env, controller, scenario: CarlaScenario, seed: int):
 
     delta_prev = 0.0
     ey_h, ay_h, dd_h, vx_h = [], [], [], []
+    trace = []
     crashed = False
     info = {}
+    step_i = 0
 
     while True:
         delta = controller.compute(x, sig.vx, sig.kappa_preview, delta_prev)
         ddelta = delta - delta_prev
+        if debug:
+            trace.append(dict(step=step_i, ey=sig.ey, e_psi=sig.e_psi,
+                              vx=sig.vx, delta=delta, kappa0=float(sig.kappa_preview[0]),
+                              psi_dot=sig.psi_dot))
         sig, x, done, info = env.step(delta)
         ey_h.append(sig.ey); ay_h.append(sig.ay); dd_h.append(ddelta); vx_h.append(sig.vx)
         delta_prev = delta
+        step_i += 1
         if done:
             crashed = info["collided"] or abs(sig.ey) > 2.5
+            if debug and crashed:
+                print(f"\n  *** CRASH at step {step_i} | collided={info['collided']} "
+                      f"ey={sig.ey:.3f} ***")
+                n = min(20, len(trace))
+                print(f"  last {n} steps before crash:")
+                for t in trace[-n:]:
+                    print(f"    step={t['step']:5d}  ey={t['ey']:+.3f}  e_psi={t['e_psi']:+.4f}"
+                          f"  kappa={t['kappa0']:+.5f}  delta={t['delta']:+.4f}  vx={t['vx']:.1f}")
             break
 
     ey = np.asarray(ey_h); ay = np.asarray(ay_h); dd = np.asarray(dd_h)
@@ -129,6 +145,7 @@ def main():
     ap.add_argument("--scenarios", nargs="*", default=None,
                     help="subset of scenario names; default = all 5")
     ap.add_argument("--out", default=str(ROOT / "results" / "eval_carla_metrics.csv"))
+    ap.add_argument("--debug", action="store_true", help="print state trace on crash")
     args = ap.parse_args()
 
     cfg = CarlaConnectConfig.from_yaml(ROOT / "config" / "carla_params.yaml")
@@ -153,7 +170,8 @@ def main():
             for scen in scenarios:
                 for s in range(args.n_seeds):
                     try:
-                        m = rollout_carla(env, ctrl, scen, seed=2000+s)
+                        m = rollout_carla(env, ctrl, scen, seed=2000+s,
+                                         debug=args.debug)
                     except Exception as e:
                         print(f"  !! {ctrl.name} x {scen.name} seed={s}: {e}")
                         m = dict(scenario=scen.name, controller=ctrl.name, seed=s,
