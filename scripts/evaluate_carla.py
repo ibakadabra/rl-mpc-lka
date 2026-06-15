@@ -51,15 +51,22 @@ class CarlaScenario:
     duration_s: float = 30.0
 
 
-# Town04 has a big highway oval, so highway/curve scenarios map naturally.
-# We do not pick spawn points by-hand here — `spawn_index=None` lets the env
-# pick a deterministic-per-seed one.
+# In CARLA the road geometry is set by the spawn point, NOT the scenario name
+# (spawn_index=None => one deterministic spawn per seed, the SAME spawn across
+# all controllers so they are compared on identical road segments; different
+# seeds sample different segments of Town04 for variety).
+#
+# What we DO control is the experimental matrix: longitudinal speed x tire
+# friction. The redesigned set sweeps those two axes cleanly. Dry runs isolate
+# the speed effect; the wet (low-mu) runs inject the model mismatch where an
+# adaptive RL-tuned controller is expected to separate from the fixed/scheduled
+# baselines.
 DEFAULT_CARLA_SCENARIOS = [
-    CarlaScenario("highway_straight",  target_speed=30.0),
-    CarlaScenario("highway_curve",     target_speed=25.0),
-    CarlaScenario("urban_sharp",       target_speed=10.0),
-    CarlaScenario("mixed_route",       target_speed=20.0),
-    CarlaScenario("low_mu_wet",        target_speed=15.0, cf_mult=0.6, cr_mult=0.6),
+    CarlaScenario("dry_12ms",      target_speed=12.0),                           # low speed, dry
+    CarlaScenario("dry_22ms",      target_speed=22.0),                           # mid speed, dry
+    CarlaScenario("dry_30ms",      target_speed=30.0),                           # high speed, dry
+    CarlaScenario("wet_20ms",      target_speed=20.0, cf_mult=0.6, cr_mult=0.6), # wet, mid speed
+    CarlaScenario("wet_28ms",      target_speed=28.0, cf_mult=0.7, cr_mult=0.7), # wet, high speed (hardest)
 ]
 
 
