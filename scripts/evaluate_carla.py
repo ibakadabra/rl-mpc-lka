@@ -71,7 +71,7 @@ def rollout_carla(env, controller, scenario: CarlaScenario, seed: int,
         controller.reset()
 
     delta_prev = 0.0
-    ey_h, ay_h, dd_h, vx_h = [], [], [], []
+    ey_h, ay_h, dd_h, vx_h, epsi_h = [], [], [], [], []
     trace = []
     crashed = False
     info = {}
@@ -85,7 +85,8 @@ def rollout_carla(env, controller, scenario: CarlaScenario, seed: int,
                               vx=sig.vx, delta=delta, kappa0=float(sig.kappa_preview[0]),
                               psi_dot=sig.psi_dot))
         sig, x, done, info = env.step(delta)
-        ey_h.append(sig.ey); ay_h.append(sig.ay); dd_h.append(ddelta); vx_h.append(sig.vx)
+        ey_h.append(sig.ey); ay_h.append(sig.ay); dd_h.append(ddelta)
+        vx_h.append(sig.vx); epsi_h.append(sig.e_psi)
         delta_prev = delta
         step_i += 1
         if done:
@@ -101,6 +102,7 @@ def rollout_carla(env, controller, scenario: CarlaScenario, seed: int,
             break
 
     ey = np.asarray(ey_h); ay = np.asarray(ay_h); dd = np.asarray(dd_h)
+    epsi = np.asarray(epsi_h)
     metrics = dict(
         scenario=scenario.name,
         controller=getattr(controller, "name", controller.__class__.__name__),
@@ -109,6 +111,8 @@ def rollout_carla(env, controller, scenario: CarlaScenario, seed: int,
         mean_vx=float(np.mean(vx_h)) if vx_h else float("nan"),
         rmse_ey=float(np.sqrt(np.mean(ey**2))) if len(ey) else float("nan"),
         mae_ey=float(np.mean(np.abs(ey))) if len(ey) else float("nan"),
+        rmse_epsi=float(np.sqrt(np.mean(epsi**2))) if len(epsi) else float("nan"),
+        max_epsi=float(np.max(np.abs(epsi))) if len(epsi) else float("nan"),
         max_ay_g=float(np.max(np.abs(ay))/G) if len(ay) else float("nan"),
         rms_ay_g=float(np.sqrt(np.mean(ay**2))/G) if len(ay) else float("nan"),
         rms_ddelta=float(np.sqrt(np.mean(dd**2))) if len(dd) else float("nan"),
@@ -189,9 +193,10 @@ def main():
 
     summ = (df.groupby(["scenario", "controller"])
               .agg(mean_rmse_ey=("rmse_ey", "mean"),
+                   mean_rmse_epsi=("rmse_epsi", "mean"),
                    mean_max_ay=("max_ay_g", "mean"),
                    crash_pct=("crashed", lambda v: 100*np.mean(v)))
-              .round(3))
+              .round(4))
     print("\n=== CARLA summary ===")
     print(summ.to_string())
 
