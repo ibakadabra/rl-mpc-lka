@@ -9,7 +9,8 @@ constraints:
   delta_max: 0.5            # steering saturation (rad)
   delta_rate_max: 0.1       # steering rate per step (rad/step)
   ey_max: 1.8               # lane boundary (m)
-  ay_max: 3.0               # lateral acceleration comfort (m/s²)
+  ay_max: 5.0               # lateral acceleration comfort (m/s²); highway
+                            # curves at ~27 m/s need ~4.5, so 3.0 choked steering
 
 fixed_weights:
   # Used for fixed-MPC baseline and fallback

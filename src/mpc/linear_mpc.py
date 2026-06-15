@@ -76,7 +76,10 @@ class MPCParams:
     R_delta: float = 10.0   # steering-rate weight (comfort)       (FIXED)
     q3_fixed: float = 0.1   # weight on vy   (RL never touches)
     q4_fixed: float = 0.1   # weight on psi_dot
-    soft_penalty: float = 1.0e3  # rho: price of violating a soft constraint
+    soft_penalty: float = 1.0e2  # rho: price of violating a soft constraint.
+    # Was 1e3, which made ay/ey comfort limits behave almost like HARD bounds:
+    # in a curve needing ay>ay_max the controller refused corrective steering and
+    # let ey run away. 1e2 lets safety (lane keeping) dominate comfort.
     vx_min: float = 1.0     # speed clamp for the LPV model
 
     @classmethod
