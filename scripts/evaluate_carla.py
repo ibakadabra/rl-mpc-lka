@@ -33,6 +33,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.baselines import FixedMPC, GainScheduledMPC, PurePursuit, Stanley
+from src.evaluation import evaluate_iso11270
 from src.mpc.linear_mpc import MPCParams
 from src.rl.rl_mpc_controller import RLMPC
 from src.vehicle_model.bicycle_model import VehicleParams
@@ -119,6 +120,10 @@ def rollout_carla(env, controller, scenario: CarlaScenario, seed: int,
         lane_violation_pct=float(np.mean(np.abs(ey) > 1.8)*100) if len(ey) else float("nan"),
         crashed=int(crashed),
     )
+    # ISO 11270 LKAS PASS/FAIL on the |a_y|, jerk, lane-departure limits.
+    Ts = getattr(env, "Ts", 0.02)
+    iso = evaluate_iso11270(ey, ay, Ts)
+    metrics.update(iso.as_dict())
     return metrics
 
 
@@ -173,6 +178,7 @@ def main():
         for ctrl in controllers:
             for scen in scenarios:
                 for s in range(args.n_seeds):
+                    print(f"  >> [{done+1}/{total}] {ctrl.name} | {scen.name} | seed={s}", flush=True)
                     try:
                         m = rollout_carla(env, ctrl, scen, seed=2000+s,
                                          debug=args.debug)
@@ -195,7 +201,8 @@ def main():
               .agg(mean_rmse_ey=("rmse_ey", "mean"),
                    mean_rmse_epsi=("rmse_epsi", "mean"),
                    mean_max_ay=("max_ay_g", "mean"),
-                   crash_pct=("crashed", lambda v: 100*np.mean(v)))
+                   crash_pct=("crashed", lambda v: 100*np.mean(v)),
+                   iso11270_pass_pct=("iso11270_overall_pass", lambda v: 100*np.mean(v)))
               .round(4))
     print("\n=== CARLA summary ===")
     print(summ.to_string())

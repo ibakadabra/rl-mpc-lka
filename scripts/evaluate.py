@@ -30,6 +30,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from src.baselines import FixedMPC, GainScheduledMPC, PurePursuit, Stanley
+from src.evaluation import evaluate_iso11270
 from src.mpc.linear_mpc import MPCParams
 from src.rl.environment import EnvConfig
 from src.rl.reward import RewardWeights, compute_reward
@@ -152,6 +153,9 @@ def rollout(controller, vehicle: VehicleParams, scenario: Scenario, seed: int,
         lane_violation_pct=float(np.mean(np.abs(ey) > mpc_params.ey_max)*100) if len(ey) else float("nan"),
         crashed=int(crashed),
     )
+    # ISO 11270 LKAS PASS/FAIL on |a_y|, jerk, lane-departure limits.
+    iso = evaluate_iso11270(ey, ay, Ts, lane_half_width=mpc_params.ey_max)
+    metrics.update(iso.as_dict())
     return metrics
 
 
@@ -216,7 +220,8 @@ def main():
               .agg(mean_return=("return_", "mean"),
                    mean_rmse_ey=("rmse_ey", "mean"),
                    mean_max_ay=("max_ay_g", "mean"),
-                   crash_pct=("crashed", lambda v: 100*np.mean(v)))
+                   crash_pct=("crashed", lambda v: 100*np.mean(v)),
+                   iso11270_pass_pct=("iso11270_overall_pass", lambda v: 100*np.mean(v)))
               .round(3))
     print("\n=== summary ===")
     print(summ.to_string())
