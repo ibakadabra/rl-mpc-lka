@@ -224,7 +224,10 @@ class LinearMPC:
 
         # OSQP form: P_uu = 2M, q_u = 2c.
         P = np.zeros((self.nz, self.nz))
-        P[:Nc, :Nc] = 2.0 * M + 1e-8 * np.eye(Nc)   # tiny reg -> strictly PD
+        P[:Nc, :Nc] = 2.0 * M + 1e-8 * np.eye(Nc)
+        # Regularize slacks so P is strictly PD (OSQP convergence)
+        for i in range(Nc, self.nz):
+            P[i, i] = 1e-6
         q = np.zeros(self.nz)
         q[:Nc] = 2.0 * c
         q[Nc:] = p.soft_penalty                       # linear price on slacks
@@ -297,7 +300,7 @@ class LinearMPC:
         A_csc = sp.csc_matrix(A)
         m = osqp.OSQP()
         m.setup(P=P_csc, q=q, A=A_csc, l=l, u=u, verbose=False,
-                eps_abs=1e-5, eps_rel=1e-5, max_iter=10000, polishing=True,
+                eps_abs=1e-4, eps_rel=1e-4, max_iter=4000, polishing=True,
                 adaptive_rho=True, warm_starting=True, scaling=20)
         if self._last_z is not None and self._last_z.shape == (self.nz,):
             m.warm_start(x=self._last_z)
