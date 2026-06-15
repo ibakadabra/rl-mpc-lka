@@ -28,6 +28,13 @@ def main():
     ap.add_argument("--kappa-max", type=float, default=0.05)
     ap.add_argument("--no-randomize", action="store_true",
                     help="disable domain randomization of the plant")
+    ap.add_argument("--hard", action="store_true",
+                    help="widen domain randomization (low-mu + within-episode grip "
+                         "drop) so the agent learns the regimes where a vx-only "
+                         "schedule fails — pair with --timesteps 500000")
+    ap.add_argument("--out-subdir", default=None,
+                    help="save under models/<subdir>/ instead of models/ "
+                         "(keeps the existing demo model for before/after compare)")
     ap.add_argument("--plot", action="store_true", help="save learning curve when done")
     args = ap.parse_args()
 
@@ -35,8 +42,20 @@ def main():
         raise NotImplementedError(
             "CARLA backend is Phase 4. Use --env internal for now.")
 
-    cfg = EnvConfig(kappa_max=args.kappa_max, randomize=not args.no_randomize)
-    train(total_timesteps=args.timesteps, env_config=cfg, seed=args.seed)
+    if args.hard:
+        cfg = EnvConfig(
+            kappa_max=args.kappa_max, randomize=True,
+            cf_range=(0.5, 1.3), cr_range=(0.5, 1.3),   # stronger + asymmetric low-mu
+            mu_step_prob=0.3,                            # 30% episodes get a grip drop
+        )
+    else:
+        cfg = EnvConfig(kappa_max=args.kappa_max, randomize=not args.no_randomize)
+
+    from pathlib import Path as _Path
+    out_dir = None
+    if args.out_subdir:
+        out_dir = _Path(__file__).resolve().parents[1] / "models" / args.out_subdir
+    train(total_timesteps=args.timesteps, env_config=cfg, seed=args.seed, out_dir=out_dir)
     if args.plot:
         plot_learning_curve()
 

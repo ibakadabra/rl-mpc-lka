@@ -78,6 +78,16 @@ class EnvConfig:
     mass_range: tuple[float, float] = (0.9, 1.1)
     delay_ms_range: tuple[float, float] = (0.0, 50.0)
 
+    # --- within-episode tire/grip transition (the "dry->wet mid-corner" case) --
+    # With probability mu_step_prob an episode applies an extra Cf,Cr multiplier
+    # partway through (a sudden grip drop). A vx-only schedule cannot anticipate
+    # this; an online tuner can react to the resulting tracking/yaw error. This
+    # is the scenario class that structurally separates RL-MPC from fixed/
+    # gain-scheduled MPC. Defaults (prob=0) preserve the original behaviour.
+    mu_step_prob: float = 0.0
+    mu_step_frac_range: tuple[float, float] = (0.3, 0.7)   # WHEN (episode fraction)
+    mu_step_mult_range: tuple[float, float] = (0.5, 0.8)   # post-step Cf,Cr multiplier
+
 
 class CarlaMPCEnv(gym.Env):
     """RL-tunes-MPC environment (internal bicycle simulation backend)."""
@@ -167,6 +177,8 @@ class CarlaMPCEnv(gym.Env):
         self._kappa_profile = np.zeros(1)
         self._delay_steps = 0
         self._delay_buf: list[float] = []
+        self._mu_step_at = None
+        self._veh_plant_after = None
 
     def reset(self, *, seed=None, options=None):
         super().reset(seed=seed)
@@ -177,6 +189,19 @@ class CarlaMPCEnv(gym.Env):
         self.veh_plant = self._sample_plant()
         self._kappa_profile = self._make_curvature_profile(self.cfg.max_episode_steps + 50)
         self._delay_buf = [0.0] * self._delay_steps
+
+        # schedule an optional within-episode grip drop (dry->wet mid-corner)
+        self._mu_step_at = None
+        self._veh_plant_after = None
+        if self.cfg.randomize and self._rng.uniform() < self.cfg.mu_step_prob:
+            frac = self._rng.uniform(*self.cfg.mu_step_frac_range)
+            self._mu_step_at = int(frac * self.cfg.max_episode_steps)
+            m = self._rng.uniform(*self.cfg.mu_step_mult_range)
+            self._veh_plant_after = VehicleParams(
+                mass=self.veh_plant.mass, yaw_inertia=self.veh_plant.yaw_inertia,
+                lf=self.veh_plant.lf, lr=self.veh_plant.lr,
+                Cf=self.veh_plant.Cf * m, Cr=self.veh_plant.Cr * m,
+            )
 
         # small random initial error so the agent sees varied starts
         self._x = np.array([
@@ -206,6 +231,11 @@ class CarlaMPCEnv(gym.Env):
         action = np.clip(self._prev_action + delta_a, -1.0, 1.0)
         self._prev_action = action
         Q, R = action_to_weights(action, self.wranges)
+
+        # apply a scheduled within-episode grip drop once we pass its trigger step
+        if self._mu_step_at is not None and self._sim_step >= self._mu_step_at:
+            self.veh_plant = self._veh_plant_after
+            self._mu_step_at = None  # one-shot
 
         A_d, B_d, E_d = self._plant_matrices(self.veh_plant, self._vx)
 
