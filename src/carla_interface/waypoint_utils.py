@@ -54,6 +54,7 @@ class LaneFrameSignals:
     vx: float           # longitudinal speed in the vehicle's body frame [m/s]
     psi_dot: float      # yaw rate [rad/s]
     ay: float           # lateral acceleration estimate [m/s^2]
+    vy: float = 0.0     # lateral speed in the vehicle's body frame [m/s]
 
 
 def _preview_centerline(world_map, start_wp, n_points: int, ds: float):
@@ -147,14 +148,15 @@ def compute_lane_signals(
         vx=float(vx_body),
         psi_dot=float(psi_dot),
         ay=float(ay_body),
+        vy=float(vy_body),
     )
 
 
-def lane_signals_to_state(sig: LaneFrameSignals, vy_estimate: float = 0.0):
+def lane_signals_to_state(sig: LaneFrameSignals, vy_estimate: float | None = None):
     """Pack the lane-frame signals into the controllers' expected x state.
 
-    The bicycle-model state we condition on is [ey, e_psi, vy, psi_dot]. CARLA
-    gives us vy via the body-frame velocity, but if you prefer a clean filter
-    pass an externally smoothed estimate.
+    The bicycle-model state we condition on is [ey, e_psi, vy, psi_dot]. When
+    vy_estimate is None (default), the CARLA-measured vy_body is used.
     """
-    return np.array([sig.ey, sig.e_psi, vy_estimate, sig.psi_dot], dtype=float)
+    vy = sig.vy if vy_estimate is None else vy_estimate
+    return np.array([sig.ey, sig.e_psi, vy, sig.psi_dot], dtype=float)

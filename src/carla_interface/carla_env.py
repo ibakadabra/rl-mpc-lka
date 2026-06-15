@@ -198,7 +198,7 @@ class CarlaValidationEnv:
             self._world.tick()
         self._follow_spectator()
         sig = compute_lane_signals(self._world, self._vehicle, Np=self.Np, Ts=self.Ts)
-        x = lane_signals_to_state(sig, vy_estimate=0.0)
+        x = lane_signals_to_state(sig)
         return sig, x
 
     def _on_collision(self):
@@ -241,7 +241,7 @@ class CarlaValidationEnv:
         self._follow_spectator()
 
         sig = compute_lane_signals(self._world, self._vehicle, Np=self.Np, Ts=self.Ts)
-        x = lane_signals_to_state(sig, vy_estimate=0.0)
+        x = lane_signals_to_state(sig)
         done = (self._collided
                 or abs(sig.ey) > 2.5
                 or self._sim_step >= int(self.cfg.episode_seconds / self.Ts))
