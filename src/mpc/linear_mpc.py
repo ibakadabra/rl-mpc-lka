@@ -309,6 +309,9 @@ class LinearMPC:
 
         status = r.info.status
         feasible = status in ("solved", "solved inaccurate")
+        if not feasible:
+            print(f"  [MPC] status={status} iter={r.info.iter} "
+                  f"ey={x0[0]:.3f} epsi={x0[1]:.4f} vx={vx:.1f} dp={dp:.4f}")
         if feasible and r.x is not None and np.all(np.isfinite(r.x)):
             z = np.asarray(r.x).ravel()
             self._last_z = z
