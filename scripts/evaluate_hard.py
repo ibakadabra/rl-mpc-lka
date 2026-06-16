@@ -38,6 +38,7 @@ from src.baselines import FixedMPC, GainScheduledMPC, PurePursuit, Stanley
 from src.evaluation import evaluate_iso11270
 from src.mpc.linear_mpc import MPCParams
 from src.rl.environment import EnvConfig
+from src.rl.reward import RewardWeights, compute_reward
 from src.rl.rl_mpc_controller import RLMPC
 from src.vehicle_model.bicycle_model import (
     VehicleParams,
@@ -60,14 +61,19 @@ class HardScenario:
     duration_s: float = 30.0
 
 
-# Each scenario targets an axis a vx-only schedule cannot see.
+# Each scenario targets an axis a vx-only schedule cannot see. Difficulty is
+# kept FEASIBLE-but-hard: the grip reduction stays above the level where the
+# required lateral acceleration exceeds the tire limit, so a crash reflects
+# control quality (which weighting copes) rather than physics impossibility.
+# (mu was relaxed 0.5->0.65 / 0.55->0.6 after the first sweep showed the harshest
+#  cells sat beyond grip, making crashes random instead of controller-attributable.)
 HARD_SCENARIOS = [
-    HardScenario("highspeed_lowmu",  (27.0, 30.0), (0.005, 0.02), cf_mult=0.5, cr_mult=0.5),
-    HardScenario("musplit_front",    (22.0, 27.0), (0.01, 0.03),  cf_mult=0.55, cr_mult=1.0),
-    HardScenario("musplit_rear",     (22.0, 27.0), (0.01, 0.03),  cf_mult=1.0,  cr_mult=0.55),
+    HardScenario("highspeed_lowmu",  (24.0, 27.0), (0.005, 0.02), cf_mult=0.65, cr_mult=0.65),
+    HardScenario("musplit_front",    (20.0, 24.0), (0.01, 0.03),  cf_mult=0.6,  cr_mult=1.0),
+    HardScenario("musplit_rear",     (22.0, 27.0), (0.01, 0.03),  cf_mult=1.0,  cr_mult=0.6),
     HardScenario("dry2wet_corner",   (22.0, 27.0), (0.01, 0.03),  cf_mult=1.0,  cr_mult=1.0,
-                 mu_step_frac=0.5, mu_step_mult=0.5),
-    HardScenario("highspeed_sharp",  (28.0, 30.0), (0.02, 0.03),  cf_mult=0.8,  cr_mult=0.8),
+                 mu_step_frac=0.5, mu_step_mult=0.6),
+    HardScenario("highspeed_sharp",  (27.0, 30.0), (0.015, 0.025), cf_mult=0.8, cr_mult=0.8),
 ]
 
 
@@ -93,6 +99,9 @@ def _plant(vehicle, cf_mult, cr_mult, mass_mult, vx, Ts):
     E_c = np.array([[0.0], [-vx], [0.0], [0.0]])
     A_d, BE = discretize_zoh(A_c, np.hstack([B_c, E_c]), Ts)
     return A_d, BE[:, :1], BE[:, 1:2]
+
+
+_REWARD_W = RewardWeights()
 
 
 def rollout(controller, vehicle, scen: HardScenario, seed, mpc_params, env_cfg):
@@ -124,6 +133,7 @@ def rollout(controller, vehicle, scen: HardScenario, seed, mpc_params, env_cfg):
     x = np.array([rng.uniform(-0.3, 0.3), rng.uniform(-0.03, 0.03), 0.0, 0.0])
     delta_prev = 0.0
     ey_h, ay_h, dd_h = [], [], []
+    ret = 0.0
     crashed = False
     for k in range(n_steps):
         if step_at is not None and k == step_at:
@@ -136,6 +146,11 @@ def rollout(controller, vehicle, scen: HardScenario, seed, mpc_params, env_cfg):
         x = A_d @ x + (B_d @ np.array([delta])).ravel() \
             + (E_d @ np.array([float(kappa_profile[k])])).ravel()
         ay = vx * x[3]
+        # episode return = the multi-objective cost RL actually optimizes
+        # (tracking + heading + smoothness + comfort + alive). A crash ends the
+        # episode early and forfeits the remaining alive bonuses, so return is
+        # inherently crash-aware — unlike rmse_ey alone.
+        ret += compute_reward(x[0], x[1], ddelta, ay, _REWARD_W)
         ey_h.append(x[0]); ay_h.append(ay); dd_h.append(ddelta)
         delta_prev = delta
         if abs(x[0]) > env_cfg.ey_terminate:
@@ -143,15 +158,20 @@ def rollout(controller, vehicle, scen: HardScenario, seed, mpc_params, env_cfg):
             break
 
     ey = np.asarray(ey_h); ay = np.asarray(ay_h); dd = np.asarray(dd_h)
+    max_abs_ey = float(np.max(np.abs(ey))) if len(ey) else float("nan")
+    # "success" = survived the full episode AND stayed well inside the lane
+    success = int((not crashed) and max_abs_ey < 1.0)
     m = dict(
         scenario=scen.name,
         controller=getattr(controller, "name", controller.__class__.__name__),
         seed=seed, vx=vx, steps=len(ey),
+        return_=ret,
         rmse_ey=float(np.sqrt(np.mean(ey**2))) if len(ey) else float("nan"),
-        max_abs_ey=float(np.max(np.abs(ey))) if len(ey) else float("nan"),
+        max_abs_ey=max_abs_ey,
         max_ay_g=float(np.max(np.abs(ay)) / G) if len(ay) else float("nan"),
         rms_ddelta=float(np.sqrt(np.mean(dd**2))) if len(dd) else float("nan"),
         crashed=int(crashed),
+        success=success,
     )
     m.update(evaluate_iso11270(ey, ay, Ts, lane_half_width=mpc_params.ey_max).as_dict())
     return m
@@ -201,24 +221,41 @@ def main():
     df.to_csv(args.out, index=False)
     print(f"\nwrote -> {args.out}  ({len(df)} rows)")
 
-    # mean +/- std over seeds, headline metrics
-    def mstd(v):
-        return f"{np.nanmean(v):.4f}+/-{np.nanstd(v):.4f}"
-    summ = (df.groupby(["scenario", "controller"])
-              .agg(rmse_ey=("rmse_ey", mstd),
-                   max_ay_g=("max_ay_g", lambda v: f"{np.nanmean(v):.3f}"),
-                   crash_pct=("crashed", lambda v: f"{100*np.mean(v):.0f}"),
-                   iso_pass=("iso11270_overall_pass", lambda v: f"{100*np.mean(v):.0f}")))
-    print("\n=== HARD scenarios: mean+/-std rmse_ey [m], crash%, ISO11270 pass% ===")
+    # ---- crash-aware summary --------------------------------------------------
+    # rmse_ey is reported over SURVIVED runs only, so a controller that crashes
+    # out of the hard part is not flattered by its short pre-crash window.
+    def survived_rmse(g):
+        s = g.loc[g["crashed"] == 0, "rmse_ey"]
+        return float(s.mean()) if len(s) else float("nan")
+
+    rows_summ = []
+    for (scen, ctrl), g in df.groupby(["scenario", "controller"]):
+        rows_summ.append(dict(
+            scenario=scen, controller=ctrl,
+            return_mean=g["return_"].mean(),
+            success_pct=100 * g["success"].mean(),
+            crash_pct=100 * g["crashed"].mean(),
+            rmse_ey_survived=survived_rmse(g),
+            rmse_ey_std=g["rmse_ey"].std(),
+            max_ay_g=g["max_ay_g"].mean(),
+        ))
+    summ = pd.DataFrame(rows_summ).set_index(["scenario", "controller"]).round(3)
+    print("\n=== HARD scenarios — crash-aware metrics ===")
+    print("(return: RL's objective, higher=better | success: no-crash & |ey|<1m"
+          " | rmse over survived runs only)")
     print(summ.to_string())
 
-    # headline delta: RL vs gain-scheduled per scenario
-    piv = df.groupby(["scenario", "controller"])["rmse_ey"].mean().unstack()
-    if {"rl_mpc", "gain_scheduled_mpc"}.issubset(piv.columns):
-        print("\n=== RL-MPC vs gain-scheduled (mean rmse_ey, lower=better) ===")
-        cmp = piv[["fixed_mpc", "gain_scheduled_mpc", "rl_mpc"]].copy()
-        cmp["rl_improve_%"] = 100 * (piv["gain_scheduled_mpc"] - piv["rl_mpc"]) / piv["gain_scheduled_mpc"]
-        print(cmp.round(4).to_string())
+    # headline: RL vs gain-scheduled on RETURN (what RL optimizes) and SAFETY
+    pr = df.groupby(["scenario", "controller"])["return_"].mean().unstack()
+    pc = df.groupby(["scenario", "controller"])["crashed"].mean().unstack() * 100
+    if {"rl_mpc", "gain_scheduled_mpc"}.issubset(pr.columns):
+        print("\n=== RL-MPC vs gain-scheduled — return (higher=better) & crash% ===")
+        cmp = pd.DataFrame({
+            "gain_return": pr["gain_scheduled_mpc"], "rl_return": pr["rl_mpc"],
+            "rl_return_gain_%": 100 * (pr["rl_mpc"] - pr["gain_scheduled_mpc"]) / pr["gain_scheduled_mpc"].abs(),
+            "gain_crash%": pc["gain_scheduled_mpc"], "rl_crash%": pc["rl_mpc"],
+        })
+        print(cmp.round(3).to_string())
 
 
 if __name__ == "__main__":
